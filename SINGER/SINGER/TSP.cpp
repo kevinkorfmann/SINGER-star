@@ -295,6 +295,21 @@ map<double, Node_ptr > TSP::sample_joining_nodes(int start_index, vector<double>
     Node_ptr n = sample_joining_node(interval);
     joining_nodes[pos] = nullptr;
     while (x >= 0) {
+        vector<Interval *> intervals = get_state_space(x);
+        const bool supported = sample_index >= 0
+            && sample_index < forward_probs[x].size()
+            && sample_index < intervals.size()
+            && intervals[sample_index] == interval
+            && isfinite(forward_probs[x][sample_index])
+            && forward_probs[x][sample_index] > 0;
+        if (!supported) {
+            cerr << "SINGER_STAR_RECOVERY tsp_reject_unsupported_source"
+                 << " curr_index=" << x
+                 << " sample_index=" << sample_index
+                 << " states=" << intervals.size() << endl;
+            interval = sample_curr_interval(x);
+            n = sample_joining_node(interval);
+        }
         x = trace_back_helper(interval, x);
         pos = coordinates[x + start_index];
         joining_nodes[pos] = n;
