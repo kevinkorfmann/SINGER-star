@@ -229,12 +229,58 @@ void TSP::null_emit(double theta, Node_ptr query_node) {
 
 void TSP::mut_emit(double theta, double bin_size, set<double> &mut_set, Node_ptr query_node) {
     compute_mut_emit_probs(theta, bin_size, mut_set, query_node);
+    const vector<double> prior_probs = forward_probs[curr_index];
     double ws = 0;
+    bool finite_weights = true;
     for (int i = 0; i < dim; i++) {
         forward_probs[curr_index][i] *= mut_emit_probs[i];
         ws += forward_probs[curr_index][i];
+        finite_weights = finite_weights
+            && isfinite(forward_probs[curr_index][i])
+            && forward_probs[curr_index][i] >= 0;
     }
-    assert(ws > 0);
+    if (!(ws > 0) || !isfinite(ws) || !finite_weights) {
+        double maximum = 0;
+        int positive_priors = 0;
+        for (int i = 0; i < dim; i++) {
+            if (isfinite(prior_probs[i]) && prior_probs[i] > 0) {
+                positive_priors += 1;
+                forward_probs[curr_index][i] = prior_probs[i]
+                    * max(epsilon, mut_emit_probs[i]);
+            } else {
+                forward_probs[curr_index][i] = 0;
+            }
+            maximum = max(maximum, forward_probs[curr_index][i]);
+        }
+        if (!(maximum > 0) || !isfinite(maximum)) {
+            maximum = 0;
+            for (int i = 0; i < dim; i++) {
+                const double emission = mut_emit_probs[i];
+                forward_probs[curr_index][i] = isfinite(emission) && emission >= 0
+                    ? max(epsilon, emission)
+                    : 0;
+                maximum = max(maximum, forward_probs[curr_index][i]);
+            }
+        }
+        ws = 0;
+        if (maximum > 0 && isfinite(maximum)) {
+            for (int i = 0; i < dim; i++) {
+                forward_probs[curr_index][i] /= maximum;
+                ws += forward_probs[curr_index][i];
+            }
+        }
+        if (!(ws > 0) || !isfinite(ws)) {
+            cerr << "SINGER_STAR_RECOVERY_FAILED tsp_mut_emit"
+                 << " curr_index=" << curr_index
+                 << " states=" << dim
+                 << " positive_priors=" << positive_priors << endl;
+            exit(1);
+        }
+        cerr << "SINGER_STAR_RECOVERY tsp_mut_emit"
+             << " curr_index=" << curr_index
+             << " states=" << dim
+             << " positive_priors=" << positive_priors << endl;
+    }
     for (int i = 0; i < dim; i++) {
         forward_probs[curr_index][i] /= ws;
     }
@@ -701,6 +747,7 @@ Interval *TSP::sample_recomb_interval(Interval *interval, int x) {
 }
 
 int TSP::trace_back_helper(Interval *interval, int x) {
+    const int start_x = x;
     int y = get_prev_breakpoint(x);
     double non_recomb_prob = 0;
     double all_prob = 0;
@@ -727,7 +774,20 @@ int TSP::trace_back_helper(Interval *interval, int x) {
         }
         x -= 1;
     }
-    assert(forward_probs[y][sample_index] > 0);
+    if (!(forward_probs[y][sample_index] > 0)) {
+        if (start_x > y) {
+            cerr << "SINGER_STAR_RECOVERY tsp_trace_back_forced_recombination"
+                 << " curr_index=" << start_x
+                 << " breakpoint=" << y
+                 << " sample_index=" << sample_index << endl;
+            return y + 1;
+        }
+        cerr << "SINGER_STAR_RECOVERY_FAILED tsp_trace_back"
+             << " curr_index=" << start_x
+             << " breakpoint=" << y
+             << " sample_index=" << sample_index << endl;
+        exit(1);
+    }
     return y;
 }
 
