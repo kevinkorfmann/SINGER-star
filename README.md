@@ -1,5 +1,23 @@
 ![Logo](SINGER.png)
-# SINGER
+# SINGER*
+
+SINGER* (repository slug: `SINGER-star`) is a minimally modified,
+crash-resilient research fork of SINGER. It exists to make narrowly scoped
+robustness fixes reproducible without changing the scientific model or silently
+substituting the fork for upstream SINGER in benchmarks.
+
+This development branch is based on upstream `v0.1.8-beta` at commit
+`013fe1bc136f16386d25d98e87107a71f7ce97df`. Its current C++ change only emits
+diagnostics before an existing zero-weight assertion; it does not alter sampler
+behavior. See [SINGER_STAR.md](SINGER_STAR.md) for the fork policy, provenance,
+and validation requirements.
+
+> Benchmarking rule: results from the unmodified upstream release are labeled
+> **SINGER**. Results from this fork are labeled **SINGER\*** and are reported
+> separately.
+
+## Upstream SINGER
+
 SINGER stands for **S**ampling and **IN**ference of **GE**nealogies with **R**ecombination, and it is a Bayesian method to do posterior sampling of Ancestral Recombination Graph under Sequentially Markovian Coalescent. SINGER works by iterative threading one haplotype to the partially-built ARG, until the ARG for all haplotypes have been built. After initialization, MCMC will be performed to update the ARG to explore the posterior distribution. For a full description and cite our method, you can check: [Deng, Yun, Rasmus Nielsen, and Yun S. Song. "Robust and accurate bayesian inference of genome-wide genealogies for large samples." bioRxiv (2024): 2024-03.](https://www.biorxiv.org/content/10.1101/2024.03.16.585351v1.supplementary-material)
 
 
