@@ -1,17 +1,17 @@
 ![Logo](SINGER.png)
 # SINGER*
 
-SINGER* (repository slug: `SINGER-star`) is a minimally modified,
-crash-resilient research fork of SINGER. It exists to make narrowly scoped
-robustness fixes reproducible without changing the scientific model or silently
-substituting the fork for upstream SINGER in benchmarks.
+SINGER* (repository slug: `SINGER-star`) is an experimental robustness fork of
+SINGER. It exists to make a specific crash, candidate fixes, and their
+fail-closed validation reproducible. The current patch set has **not** passed
+the frozen crash regression and must not be used as a validated replacement
+for upstream SINGER.
 
 This development branch is based on upstream `v0.1.8-beta` at commit
-`013fe1bc136f16386d25d98e87107a71f7ce97df`. Its narrow C++ patch recovers from
-nonfinite or zero emission normalization and cumulative source-weight roundoff,
-while preserving the upstream path for valid weights. Every recovery is logged.
-See [SINGER_STAR.md](SINGER_STAR.md) for the failure provenance, exact scope,
-and fail-closed validation requirements.
+`013fe1bc136f16386d25d98e87107a71f7ce97df`. Candidate C++ recoveries preserve
+the upstream path for valid weights and log every exceptional path, but all four
+frozen stress replays still terminate before completion. See
+[SINGER_STAR.md](SINGER_STAR.md) for the exact evidence and claim boundary.
 
 > Benchmarking rule: results from the unmodified upstream release are labeled
 > **SINGER**. Results from this fork are labeled **SINGER\*** and are reported

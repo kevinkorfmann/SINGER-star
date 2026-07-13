@@ -22,7 +22,8 @@ Every behavioral fix must include:
 
 - Upstream base: `v0.1.8-beta`
 - Upstream commit: `013fe1bc136f16386d25d98e87107a71f7ce97df`
-- Patch status: minimal numerical recovery implemented; cluster validation pending
+- Candidate commit: `81bf4830a3114e5b1aa70efe5b7f48b58380d729`
+- Patch status: **unvalidated; frozen crash regression failed**
 - Build and replay policy: Slurm jobs only for the SLARG benchmark cluster
 
 The corrected 32-haplotype, 1 Mb frozen input failed in all four official
@@ -47,6 +48,15 @@ is sampled from the finite positive filtering distribution at the immediately
 preceding breakpoint, reusing the existing source-selection draw. Every
 recovery emits a `SINGER_STAR_RECOVERY` record on standard error.
 
+The candidate is not a completed fix. In validation run
+`validation-81bf483-20260713T234800Z`, the recovery-free parity job completed
+and reproduced the official scientific output exactly. All four frozen stress
+replays failed. They progressed beyond the original zero-weight and
+source-interval assertions, rejected a source state with zero filtering
+support, and then reached the same invalid recombination-edit assertion in
+`Recombination::add`. The final validation seal was therefore cancelled by the
+dependency graph. No SINGER* benchmark result from this commit is admissible.
+
 The Slurm validation graph in `slarg_cluster/` requires both exact scientific
 output parity on a recovery-free run and completion of four bounded replays
 using the failure seeds. Validation is fail-closed and writes a final seal only
@@ -55,5 +65,7 @@ after every check passes.
 ## Benchmark interpretation
 
 Official SINGER is always evaluated first and remains the primary comparator.
-SINGER* is a separately disclosed robustness sensitivity. A SINGER* result must
-never replace, overwrite, or be presented as an official SINGER result.
+SINGER* may be included only after its frozen validation seal passes. Until
+then, it is diagnostic software, not a benchmark method. A future SINGER*
+result must never replace, overwrite, or be presented as an official SINGER
+result.
