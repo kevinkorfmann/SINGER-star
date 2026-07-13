@@ -156,6 +156,18 @@ void approx_BSP::null_emit(double theta, Node_ptr query_node) {
         }
         // ws += curr_probs[i];
     }
+    if (!(ws > 0)) {
+        int positive = 0;
+        int finite = 0;
+        for (double value : curr_probs) {
+            positive += value > 0;
+            finite += isfinite(value);
+        }
+        cerr << "SINGER_STAR_DIAGNOSTIC null_emit zero_weight_sum"
+             << " curr_index=" << curr_index << " dim=" << dim
+             << " probs=" << curr_probs.size() << " positive=" << positive
+             << " finite=" << finite << " epsilon=" << epsilon << endl;
+    }
     assert(ws > 0);
     for (int i = 0; i < dim; i++) {
         curr_probs[i] /= ws;
@@ -172,6 +184,18 @@ void approx_BSP::mut_emit(double theta, double bin_size, set<double> &mut_set, N
             ws += curr_probs[i];
         }
         // ws += curr_probs[i];
+    }
+    if (!(ws > 0)) {
+        int positive = 0;
+        int finite = 0;
+        for (double value : curr_probs) {
+            positive += value > 0;
+            finite += isfinite(value);
+        }
+        cerr << "SINGER_STAR_DIAGNOSTIC mut_emit zero_weight_sum"
+             << " curr_index=" << curr_index << " dim=" << dim
+             << " probs=" << curr_probs.size() << " positive=" << positive
+             << " finite=" << finite << " epsilon=" << epsilon << endl;
     }
     assert(ws > 0);
     for (int i = 0; i < dim; i++) {
