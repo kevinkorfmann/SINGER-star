@@ -34,7 +34,9 @@ SINGER* keeps the upstream arithmetic unchanged whenever the emission weights
 are finite and normalize to a positive value. Only an invalid normalization
 enters a log-domain recovery using the same epsilon floor. If pruning has
 collapsed the entire prior, recovery is restricted to states that have a valid
-traceback path and uses their emission likelihoods. Source-interval sampling
+complete traceback path to the initial state and uses their emission
+likelihoods. Traceback support is checked iteratively to avoid recursion depth
+limits on long regions. Source-interval sampling
 similarly keeps the original path for valid weights, falls back first to the
 corresponding forward probabilities and then to a uniform distribution over
 structurally valid source links, and assigns a positive terminal residual to

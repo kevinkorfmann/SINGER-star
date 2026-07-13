@@ -9,6 +9,52 @@
 
 namespace {
 
+bool has_complete_traceback(
+    const Interval_ptr &root,
+    map<const Interval *, unsigned char> &state
+) {
+    if (root == nullptr) {
+        return false;
+    }
+    auto cached = state.find(root.get());
+    if (cached != state.end()) {
+        return cached->second == 2;
+    }
+    vector<pair<Interval_ptr, size_t>> stack = {{root, 0}};
+    state[root.get()] = 1;
+    while (!stack.empty()) {
+        Interval_ptr node = stack.back().first;
+        size_t &next_source = stack.back().second;
+        const Interval *key = node.get();
+        if (node->start_pos <= 0) {
+            state[key] = 2;
+            stack.pop_back();
+            continue;
+        }
+        if (node->intervals.empty() || next_source >= node->intervals.size()) {
+            state[key] = 3;
+            stack.pop_back();
+            continue;
+        }
+        const Interval_ptr &source = node->intervals[next_source];
+        if (source == nullptr) {
+            next_source += 1;
+            continue;
+        }
+        auto source_state = state.find(source.get());
+        if (source_state == state.end()) {
+            state[source.get()] = 1;
+            stack.push_back({source, 0});
+        } else if (source_state->second == 2) {
+            state[key] = 2;
+            stack.pop_back();
+        } else {
+            next_source += 1;
+        }
+    }
+    return state[root.get()] == 2;
+}
+
 void recover_emission_weights(
     vector<double> &probabilities,
     const vector<double> &emissions,
@@ -24,12 +70,13 @@ void recover_emission_weights(
     int positive_prior_count = 0;
     int traceable_count = 0;
     int infinite_count = 0;
+    map<const Interval *, unsigned char> traceback_state;
     for (size_t i = 0; i < probabilities.size(); i++) {
         const double prior = probabilities[i];
         const double emission = emissions[i];
-        const bool traceable = position == 0
-            || intervals[i]->start_pos != position
-            || !intervals[i]->intervals.empty();
+        const bool traceable = has_complete_traceback(
+            intervals[i], traceback_state
+        );
         traceable_count += traceable;
         if (!traceable || !(prior > 0) || !isfinite(prior)
             || isnan(emission) || emission < 0) {
@@ -59,9 +106,9 @@ void recover_emission_weights(
         );
         for (size_t i = 0; i < probabilities.size(); i++) {
             const double emission = emissions[i];
-            const bool traceable = position == 0
-                || intervals[i]->start_pos != position
-                || !intervals[i]->intervals.empty();
+            const bool traceable = has_complete_traceback(
+                intervals[i], traceback_state
+            );
             if (!traceable || isnan(emission) || emission < 0) {
                 continue;
             }
@@ -95,9 +142,9 @@ void recover_emission_weights(
     if (!(total > 0) || !isfinite(total)) {
         total = 0;
         for (size_t i = 0; i < probabilities.size(); i++) {
-            const bool traceable = position == 0
-                || intervals[i]->start_pos != position
-                || !intervals[i]->intervals.empty();
+            const bool traceable = has_complete_traceback(
+                intervals[i], traceback_state
+            );
             probabilities[i] = traceable ? 1.0 : 0.0;
             total += probabilities[i];
         }
@@ -746,11 +793,38 @@ Interval_ptr approx_BSP::sample_curr_interval(int x) {
     double ws = accumulate(forward_probs[x].begin(), forward_probs[x].end(), 0.0);
     double q = random();
     double w = ws*q;
+    map<const Interval *, unsigned char> traceback_state;
     for (int i = 0; i < intervals.size(); i++) {
         w -= forward_probs[x][i];
         if (w <= 0) {
-            sample_index = i;
-            return intervals[i];
+            if (has_complete_traceback(intervals[i], traceback_state)) {
+                sample_index = i;
+                return intervals[i];
+            }
+            break;
+        }
+    }
+    vector<double> supported(intervals.size(), 0.0);
+    ws = 0;
+    for (size_t i = 0; i < intervals.size(); i++) {
+        const double value = forward_probs[x][i];
+        if (isfinite(value) && value > 0
+            && has_complete_traceback(intervals[i], traceback_state)) {
+            supported[i] = value;
+            ws += value;
+        }
+    }
+    if (ws > 0 && isfinite(ws)) {
+        w = ws*q;
+        for (size_t i = 0; i < intervals.size(); i++) {
+            w -= supported[i];
+            if (w <= 0) {
+                sample_index = static_cast<int>(i);
+                cerr << "SINGER_STAR_RECOVERY sample_curr_interval_traceback"
+                     << " curr_index=" << x
+                     << " states=" << intervals.size() << endl;
+                return intervals[i];
+            }
         }
     }
     cerr << "approx_BSP sample_curr_interval failed" << endl;
@@ -765,12 +839,39 @@ Interval_ptr approx_BSP::sample_prev_interval(int x) {
     double q = random();
     double w = ws*q;
     double rb = 0;
+    map<const Interval *, unsigned char> traceback_state;
+    vector<double> transition_weights(intervals.size(), 0.0);
     for (int i = 0; i < intervals.size(); i++) {
         rb = get_recomb_prob(rho, prev_times[i]);
-        w -= rb*forward_probs[x][i];
+        transition_weights[i] = rb*forward_probs[x][i];
+        w -= transition_weights[i];
         if (w <= 0) {
-            sample_index = i;
-            return intervals[i];
+            if (has_complete_traceback(intervals[i], traceback_state)) {
+                sample_index = i;
+                return intervals[i];
+            }
+            break;
+        }
+    }
+    ws = 0;
+    for (size_t i = 0; i < intervals.size(); i++) {
+        if (!isfinite(transition_weights[i]) || transition_weights[i] < 0
+            || !has_complete_traceback(intervals[i], traceback_state)) {
+            transition_weights[i] = 0;
+        }
+        ws += transition_weights[i];
+    }
+    if (ws > 0 && isfinite(ws)) {
+        w = ws*q;
+        for (size_t i = 0; i < intervals.size(); i++) {
+            w -= transition_weights[i];
+            if (w <= 0) {
+                sample_index = static_cast<int>(i);
+                cerr << "SINGER_STAR_RECOVERY sample_prev_interval_traceback"
+                     << " curr_index=" << x
+                     << " states=" << intervals.size() << endl;
+                return intervals[i];
+            }
         }
     }
     cerr << "approx_BSP sample_prev_interval failed" << endl;
@@ -785,8 +886,14 @@ Interval_ptr approx_BSP::sample_source_interval(Interval_ptr interval, int x) {
         double q = random();
         double ws = accumulate(weights.begin(), weights.end(), 0.0);
         bool valid_weights = true;
-        for (double value : weights) {
-            valid_weights = valid_weights && isfinite(value) && value >= 0;
+        map<const Interval *, unsigned char> traceback_state;
+        for (size_t i = 0; i < weights.size(); i++) {
+            const double value = weights[i];
+            valid_weights = valid_weights
+                && isfinite(value)
+                && value >= 0
+                && (value == 0
+                    || has_complete_traceback(intervals[i], traceback_state));
         }
         vector<double> fallback;
         const vector<double> *sampling_weights = &weights;
@@ -796,7 +903,8 @@ Interval_ptr approx_BSP::sample_source_interval(Interval_ptr interval, int x) {
             int mapped_sources = 0;
             for (size_t i = 0; i < intervals.size(); i++) {
                 const int index = get_interval_index(intervals[i], prev_intervals);
-                if (index < prev_intervals.size()) {
+                if (index < prev_intervals.size()
+                    && has_complete_traceback(intervals[i], traceback_state)) {
                     mapped_sources += 1;
                     const double value = forward_probs[x][index];
                     if (isfinite(value) && value > 0) {
@@ -809,7 +917,8 @@ Interval_ptr approx_BSP::sample_source_interval(Interval_ptr interval, int x) {
                 ws = 0;
                 for (size_t i = 0; i < intervals.size(); i++) {
                     const int index = get_interval_index(intervals[i], prev_intervals);
-                    if (index < prev_intervals.size()) {
+                    if (index < prev_intervals.size()
+                        && has_complete_traceback(intervals[i], traceback_state)) {
                         fallback[i] = 1.0;
                         ws += 1.0;
                     }
