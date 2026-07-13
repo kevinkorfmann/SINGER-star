@@ -7,6 +7,69 @@
 
 #include "approx_BSP.hpp"
 
+namespace {
+
+void recover_emission_weights(
+    vector<double> &probabilities,
+    const vector<double> &emissions,
+    double epsilon,
+    const char *context,
+    int position
+) {
+    vector<double> log_weights(probabilities.size(), -numeric_limits<double>::infinity());
+    double maximum = -numeric_limits<double>::infinity();
+    int positive_prior_count = 0;
+    int infinite_count = 0;
+    for (size_t i = 0; i < probabilities.size(); i++) {
+        const double prior = probabilities[i];
+        const double emission = emissions[i];
+        if (!(prior > 0) || !isfinite(prior) || isnan(emission) || emission < 0) {
+            continue;
+        }
+        positive_prior_count += 1;
+        if (isinf(emission)) {
+            log_weights[i] = numeric_limits<double>::infinity();
+            infinite_count += 1;
+            continue;
+        }
+        const double log_weight = emission == 0
+            ? log(epsilon)
+            : max(log(epsilon), log(prior) + log(emission));
+        log_weights[i] = log_weight;
+        maximum = max(maximum, log_weight);
+    }
+
+    double total = 0;
+    if (infinite_count > 0) {
+        for (size_t i = 0; i < probabilities.size(); i++) {
+            probabilities[i] = isinf(log_weights[i]) ? 1.0 : 0.0;
+            total += probabilities[i];
+        }
+    } else if (isfinite(maximum)) {
+        for (size_t i = 0; i < probabilities.size(); i++) {
+            probabilities[i] = isfinite(log_weights[i])
+                ? exp(log_weights[i] - maximum)
+                : 0.0;
+            total += probabilities[i];
+        }
+    }
+
+    if (!(total > 0) || !isfinite(total)) {
+        total = static_cast<double>(probabilities.size());
+        fill(probabilities.begin(), probabilities.end(), 1.0);
+    }
+    for (double &value : probabilities) {
+        value /= total;
+    }
+    cerr << "SINGER_STAR_RECOVERY " << context
+         << " curr_index=" << position
+         << " states=" << probabilities.size()
+         << " positive_priors=" << positive_prior_count
+         << " infinite_emissions=" << infinite_count << endl;
+}
+
+}
+
 approx_BSP::approx_BSP() {}
 
 approx_BSP::~approx_BSP() {
@@ -147,28 +210,27 @@ void approx_BSP::null_emit(double theta, Node_ptr query_node) {
     compute_null_emit_prob(theta, query_node);
     prev_theta = theta;
     prev_node = query_node;
-    double ws = 0;
     auto &curr_probs = forward_probs[curr_index];
+    const vector<double> prior_probs = curr_probs;
+    double ws = 0;
+    bool finite_weights = true;
     for (int i = 0; i < dim; i++) {
         if (curr_probs[i] > 0) {
+            finite_weights = finite_weights
+                && isfinite(null_emit_probs[i])
+                && null_emit_probs[i] >= 0;
             curr_probs[i] = max(epsilon, curr_probs[i]*null_emit_probs[i]);
             ws += curr_probs[i];
         }
-        // ws += curr_probs[i];
+        finite_weights = finite_weights && isfinite(curr_probs[i]) && curr_probs[i] >= 0;
     }
-    if (!(ws > 0)) {
-        int positive = 0;
-        int finite = 0;
-        for (double value : curr_probs) {
-            positive += value > 0;
-            finite += isfinite(value);
-        }
-        cerr << "SINGER_STAR_DIAGNOSTIC null_emit zero_weight_sum"
-             << " curr_index=" << curr_index << " dim=" << dim
-             << " probs=" << curr_probs.size() << " positive=" << positive
-             << " finite=" << finite << " epsilon=" << epsilon << endl;
+    if (!(ws > 0) || !isfinite(ws) || !finite_weights) {
+        curr_probs = prior_probs;
+        recover_emission_weights(
+            curr_probs, null_emit_probs, epsilon, "null_emit", curr_index
+        );
+        return;
     }
-    assert(ws > 0);
     for (int i = 0; i < dim; i++) {
         curr_probs[i] /= ws;
     }
@@ -176,28 +238,27 @@ void approx_BSP::null_emit(double theta, Node_ptr query_node) {
 
 void approx_BSP::mut_emit(double theta, double bin_size, set<double> &mut_set, Node_ptr query_node) {
     compute_mut_emit_probs(theta, bin_size, mut_set, query_node);
-    double ws = 0;
     auto &curr_probs = forward_probs[curr_index];
+    const vector<double> prior_probs = curr_probs;
+    double ws = 0;
+    bool finite_weights = true;
     for (int i = 0; i < dim; i++) {
         if (curr_probs[i] > 0) {
+            finite_weights = finite_weights
+                && isfinite(mut_emit_probs[i])
+                && mut_emit_probs[i] >= 0;
             curr_probs[i] = max(epsilon, curr_probs[i]*mut_emit_probs[i]);
             ws += curr_probs[i];
         }
-        // ws += curr_probs[i];
+        finite_weights = finite_weights && isfinite(curr_probs[i]) && curr_probs[i] >= 0;
     }
-    if (!(ws > 0)) {
-        int positive = 0;
-        int finite = 0;
-        for (double value : curr_probs) {
-            positive += value > 0;
-            finite += isfinite(value);
-        }
-        cerr << "SINGER_STAR_DIAGNOSTIC mut_emit zero_weight_sum"
-             << " curr_index=" << curr_index << " dim=" << dim
-             << " probs=" << curr_probs.size() << " positive=" << positive
-             << " finite=" << finite << " epsilon=" << epsilon << endl;
+    if (!(ws > 0) || !isfinite(ws) || !finite_weights) {
+        curr_probs = prior_probs;
+        recover_emission_weights(
+            curr_probs, mut_emit_probs, epsilon, "mut_emit", curr_index
+        );
+        return;
     }
-    assert(ws > 0);
     for (int i = 0; i < dim; i++) {
         curr_probs[i] /= ws;
     }
@@ -660,13 +721,58 @@ Interval_ptr approx_BSP::sample_source_interval(Interval_ptr interval, int x) {
     if (x == interval->start_pos - 1) {
         double q = random();
         double ws = accumulate(weights.begin(), weights.end(), 0.0);
+        bool valid_weights = true;
+        for (double value : weights) {
+            valid_weights = valid_weights && isfinite(value) && value >= 0;
+        }
+        vector<double> fallback;
+        const vector<double> *sampling_weights = &weights;
+        if (!(ws > 0) || !isfinite(ws) || !valid_weights) {
+            fallback.assign(weights.size(), 0.0);
+            ws = 0;
+            for (size_t i = 0; i < intervals.size(); i++) {
+                const int index = get_interval_index(intervals[i], prev_intervals);
+                if (index < prev_intervals.size()) {
+                    const double value = forward_probs[x][index];
+                    if (isfinite(value) && value > 0) {
+                        fallback[i] = value;
+                        ws += value;
+                    }
+                }
+            }
+            if (!(ws > 0) || !isfinite(ws)) {
+                cerr << "SINGER_STAR_RECOVERY_FAILED sample_source_interval"
+                     << " curr_index=" << x
+                     << " sources=" << intervals.size() << endl;
+                exit(1);
+            }
+            sampling_weights = &fallback;
+            cerr << "SINGER_STAR_RECOVERY sample_source_interval"
+                 << " curr_index=" << x
+                 << " sources=" << intervals.size() << endl;
+        }
         double w = ws*q;
+        int last_positive = -1;
         for (int i = 0; i < weights.size(); i++) {
-            w -= weights[i];
+            const double value = (*sampling_weights)[i];
+            if (value > 0) {
+                last_positive = i;
+            }
+            w -= value;
             if (w <= 0) {
                 sample_index = get_interval_index(intervals[i], prev_intervals);
                 return intervals[i];
             }
+        }
+        if (last_positive >= 0) {
+            sample_index = get_interval_index(
+                intervals[last_positive], prev_intervals
+            );
+            cerr << "SINGER_STAR_RECOVERY sample_source_interval_roundoff"
+                 << " curr_index=" << x
+                 << " residual=" << w
+                 << " weight_sum=" << ws << endl;
+            return intervals[last_positive];
         }
         cerr << "approx bsp sample_source_interval failed" << endl;
         exit(1);

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=singer-star-diagnostic-build
+#SBATCH --job-name=singer-star-build
 #SBATCH --account=smathi-cohort
 #SBATCH --partition=genoa-std-mem
 #SBATCH --qos=genoa-std
@@ -17,18 +17,22 @@ umask 0027
 : "${SINGER_STAR_OUTPUT:?}"
 : "${SLURM_JOB_ID:?SINGER* build must run in Slurm}"
 
+test "$(git -C "$SINGER_STAR_SOURCE" rev-parse HEAD)" = "$SINGER_STAR_COMMIT"
+test -z "$(git -C "$SINGER_STAR_SOURCE" status --porcelain --untracked-files=all)"
 test ! -e "$SINGER_STAR_OUTPUT"
 mkdir -p "$SINGER_STAR_OUTPUT"
 WORK=${SLURM_TMPDIR:-/tmp}/singer-star-$SLURM_JOB_ID
 cp -R "$SINGER_STAR_SOURCE/SINGER/SINGER" "$WORK"
 cd "$WORK"
-g++ -std=c++17 -O3 -g -static ./*.cpp -o singer_diagnostic
-cp singer_diagnostic "$SINGER_STAR_OUTPUT/singer_diagnostic"
-sha256sum "$SINGER_STAR_OUTPUT/singer_diagnostic" >"$SINGER_STAR_OUTPUT/SHA256SUMS"
+g++ -std=c++17 -O3 -g -static ./*.cpp -o singer_star
+cp singer_star "$SINGER_STAR_OUTPUT/singer_star"
+sha256sum "$SINGER_STAR_OUTPUT/singer_star" >"$SINGER_STAR_OUTPUT/SHA256SUMS"
 printf '%s\n' \
+  "status=build_complete" \
+  "label=SINGER*" \
   "upstream_tag=v0.1.8-beta" \
   "upstream_commit=013fe1bc136f16386d25d98e87107a71f7ce97df" \
-  "diagnostic_commit=$SINGER_STAR_COMMIT" \
-  "behavior_change=false" \
+  "patch_commit=$SINGER_STAR_COMMIT" \
+  "behavior_change=numerical_recovery_only" \
   "slurm_job_id=$SLURM_JOB_ID" \
   >"$SINGER_STAR_OUTPUT/build.txt"

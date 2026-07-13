@@ -22,13 +22,27 @@ Every behavioral fix must include:
 
 - Upstream base: `v0.1.8-beta`
 - Upstream commit: `013fe1bc136f16386d25d98e87107a71f7ce97df`
-- Patch status: diagnostic only; sampler behavior is unchanged
+- Patch status: minimal numerical recovery implemented; cluster validation pending
 - Build and replay policy: Slurm jobs only for the SLARG benchmark cluster
 
-The diagnostic patch prints the relevant state immediately before the existing
-zero-weight assertion and then preserves the assertion. A numerical fallback
-will be considered only after the corrected-input upstream replay establishes
-that the failure remains valid.
+The corrected 32-haplotype, 1 Mb frozen input failed in all four official
+SINGER chains. Three chains reached the `mut_emit` zero-weight assertion and
+one reached the terminal `sample_source_interval` failure. The input VCF has
+SHA-256 `ad6307b1e0030803baf65185afcd59dc2b42c301ff7239246e52bbcf5bd55784`.
+
+SINGER* keeps the upstream arithmetic unchanged whenever the emission weights
+are finite and normalize to a positive value. Only an invalid normalization
+enters a log-domain recovery using the same epsilon floor. Source-interval
+sampling similarly keeps the original path for valid weights, falls back to
+the corresponding forward probabilities for invalid weights, and assigns a
+positive terminal residual to the last supported state when floating-point
+roundoff prevents the cumulative sum from crossing zero. Every recovery emits
+a `SINGER_STAR_RECOVERY` record on standard error.
+
+The Slurm validation graph in `slarg_cluster/` requires both exact scientific
+output parity on a recovery-free run and completion of four bounded replays
+using the failure seeds. Validation is fail-closed and writes a final seal only
+after every check passes.
 
 ## Benchmark interpretation
 

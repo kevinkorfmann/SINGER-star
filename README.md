@@ -7,10 +7,11 @@ robustness fixes reproducible without changing the scientific model or silently
 substituting the fork for upstream SINGER in benchmarks.
 
 This development branch is based on upstream `v0.1.8-beta` at commit
-`013fe1bc136f16386d25d98e87107a71f7ce97df`. Its current C++ change only emits
-diagnostics before an existing zero-weight assertion; it does not alter sampler
-behavior. See [SINGER_STAR.md](SINGER_STAR.md) for the fork policy, provenance,
-and validation requirements.
+`013fe1bc136f16386d25d98e87107a71f7ce97df`. Its narrow C++ patch recovers from
+nonfinite or zero emission normalization and cumulative source-weight roundoff,
+while preserving the upstream path for valid weights. Every recovery is logged.
+See [SINGER_STAR.md](SINGER_STAR.md) for the failure provenance, exact scope,
+and fail-closed validation requirements.
 
 > Benchmarking rule: results from the unmodified upstream release are labeled
 > **SINGER**. Results from this fork are labeled **SINGER\*** and are reported
