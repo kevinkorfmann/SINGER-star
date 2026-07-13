@@ -41,8 +41,11 @@ structurally valid source links, and assigns a positive terminal residual to
 the last supported state when floating-point roundoff prevents the cumulative
 sum from crossing zero. If pruning leaves a selected state without any source
 link, the recovery conditions on the same nonzero recombination transition
-weights used by the backward sampler at that breakpoint. Every recovery emits
-a `SINGER_STAR_RECOVERY` record on standard error.
+weights used by the backward sampler at that breakpoint. When that transition
+has zero mass, the source-less recovered state is rejected and its predecessor
+is sampled from the finite positive filtering distribution at the immediately
+preceding breakpoint, reusing the existing source-selection draw. Every
+recovery emits a `SINGER_STAR_RECOVERY` record on standard error.
 
 The Slurm validation graph in `slarg_cluster/` requires both exact scientific
 output parity on a recovery-free run and completion of four bounded replays
