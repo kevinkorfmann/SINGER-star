@@ -12,18 +12,27 @@ namespace {
 void recover_emission_weights(
     vector<double> &probabilities,
     const vector<double> &emissions,
+    const vector<Interval_ptr> &intervals,
     double epsilon,
     const char *context,
     int position
 ) {
+    assert(probabilities.size() == emissions.size());
+    assert(probabilities.size() == intervals.size());
     vector<double> log_weights(probabilities.size(), -numeric_limits<double>::infinity());
     double maximum = -numeric_limits<double>::infinity();
     int positive_prior_count = 0;
+    int traceable_count = 0;
     int infinite_count = 0;
     for (size_t i = 0; i < probabilities.size(); i++) {
         const double prior = probabilities[i];
         const double emission = emissions[i];
-        if (!(prior > 0) || !isfinite(prior) || isnan(emission) || emission < 0) {
+        const bool traceable = position == 0
+            || intervals[i]->start_pos != position
+            || !intervals[i]->intervals.empty();
+        traceable_count += traceable;
+        if (!traceable || !(prior > 0) || !isfinite(prior)
+            || isnan(emission) || emission < 0) {
             continue;
         }
         positive_prior_count += 1;
@@ -37,6 +46,35 @@ void recover_emission_weights(
             : max(log(epsilon), log(prior) + log(emission));
         log_weights[i] = log_weight;
         maximum = max(maximum, log_weight);
+    }
+
+    bool emission_only_recovery = positive_prior_count == 0;
+    if (emission_only_recovery) {
+        infinite_count = 0;
+        maximum = -numeric_limits<double>::infinity();
+        fill(
+            log_weights.begin(),
+            log_weights.end(),
+            -numeric_limits<double>::infinity()
+        );
+        for (size_t i = 0; i < probabilities.size(); i++) {
+            const double emission = emissions[i];
+            const bool traceable = position == 0
+                || intervals[i]->start_pos != position
+                || !intervals[i]->intervals.empty();
+            if (!traceable || isnan(emission) || emission < 0) {
+                continue;
+            }
+            if (isinf(emission)) {
+                log_weights[i] = numeric_limits<double>::infinity();
+                infinite_count += 1;
+            } else {
+                log_weights[i] = emission == 0
+                    ? log(epsilon)
+                    : max(log(epsilon), log(emission));
+                maximum = max(maximum, log_weights[i]);
+            }
+        }
     }
 
     double total = 0;
@@ -55,8 +93,21 @@ void recover_emission_weights(
     }
 
     if (!(total > 0) || !isfinite(total)) {
-        total = static_cast<double>(probabilities.size());
-        fill(probabilities.begin(), probabilities.end(), 1.0);
+        total = 0;
+        for (size_t i = 0; i < probabilities.size(); i++) {
+            const bool traceable = position == 0
+                || intervals[i]->start_pos != position
+                || !intervals[i]->intervals.empty();
+            probabilities[i] = traceable ? 1.0 : 0.0;
+            total += probabilities[i];
+        }
+    }
+    if (!(total > 0) || !isfinite(total)) {
+        cerr << "SINGER_STAR_RECOVERY_FAILED " << context
+             << " curr_index=" << position
+             << " states=" << probabilities.size()
+             << " traceable_states=" << traceable_count << endl;
+        exit(1);
     }
     for (double &value : probabilities) {
         value /= total;
@@ -65,6 +116,8 @@ void recover_emission_weights(
          << " curr_index=" << position
          << " states=" << probabilities.size()
          << " positive_priors=" << positive_prior_count
+         << " traceable_states=" << traceable_count
+         << " emission_only=" << emission_only_recovery
          << " infinite_emissions=" << infinite_count << endl;
 }
 
@@ -227,7 +280,12 @@ void approx_BSP::null_emit(double theta, Node_ptr query_node) {
     if (!(ws > 0) || !isfinite(ws) || !finite_weights) {
         curr_probs = prior_probs;
         recover_emission_weights(
-            curr_probs, null_emit_probs, epsilon, "null_emit", curr_index
+            curr_probs,
+            null_emit_probs,
+            curr_intervals,
+            epsilon,
+            "null_emit",
+            curr_index
         );
         return;
     }
@@ -255,7 +313,12 @@ void approx_BSP::mut_emit(double theta, double bin_size, set<double> &mut_set, N
     if (!(ws > 0) || !isfinite(ws) || !finite_weights) {
         curr_probs = prior_probs;
         recover_emission_weights(
-            curr_probs, mut_emit_probs, epsilon, "mut_emit", curr_index
+            curr_probs,
+            mut_emit_probs,
+            curr_intervals,
+            epsilon,
+            "mut_emit",
+            curr_index
         );
         return;
     }
@@ -730,9 +793,11 @@ Interval_ptr approx_BSP::sample_source_interval(Interval_ptr interval, int x) {
         if (!(ws > 0) || !isfinite(ws) || !valid_weights) {
             fallback.assign(weights.size(), 0.0);
             ws = 0;
+            int mapped_sources = 0;
             for (size_t i = 0; i < intervals.size(); i++) {
                 const int index = get_interval_index(intervals[i], prev_intervals);
                 if (index < prev_intervals.size()) {
+                    mapped_sources += 1;
                     const double value = forward_probs[x][index];
                     if (isfinite(value) && value > 0) {
                         fallback[i] = value;
@@ -741,15 +806,27 @@ Interval_ptr approx_BSP::sample_source_interval(Interval_ptr interval, int x) {
                 }
             }
             if (!(ws > 0) || !isfinite(ws)) {
+                ws = 0;
+                for (size_t i = 0; i < intervals.size(); i++) {
+                    const int index = get_interval_index(intervals[i], prev_intervals);
+                    if (index < prev_intervals.size()) {
+                        fallback[i] = 1.0;
+                        ws += 1.0;
+                    }
+                }
+            }
+            if (!(ws > 0) || !isfinite(ws)) {
                 cerr << "SINGER_STAR_RECOVERY_FAILED sample_source_interval"
                      << " curr_index=" << x
-                     << " sources=" << intervals.size() << endl;
+                     << " sources=" << intervals.size()
+                     << " mapped_sources=" << mapped_sources << endl;
                 exit(1);
             }
             sampling_weights = &fallback;
             cerr << "SINGER_STAR_RECOVERY sample_source_interval"
                  << " curr_index=" << x
-                 << " sources=" << intervals.size() << endl;
+                 << " sources=" << intervals.size()
+                 << " mapped_sources=" << mapped_sources << endl;
         }
         double w = ws*q;
         int last_positive = -1;

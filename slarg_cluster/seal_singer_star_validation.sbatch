@@ -4,7 +4,7 @@
 #SBATCH --partition=genoa-std-mem
 #SBATCH --qos=genoa-std
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=8G
+#SBATCH --mem=11264M
 #SBATCH --time=00:10:00
 #SBATCH --no-requeue
 #SBATCH --output=/vast/projects/smathi/cohort/kkor/slarg/logs/%x-%j.out
