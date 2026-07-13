@@ -816,10 +816,49 @@ Interval_ptr approx_BSP::sample_source_interval(Interval_ptr interval, int x) {
                 }
             }
             if (!(ws > 0) || !isfinite(ws)) {
+                vector<double> recomb_weights(prev_intervals.size(), 0.0);
+                vector<double> &prev_times = get_time_points(x);
+                double recomb_total = 0;
+                for (size_t i = 0; i < prev_intervals.size(); i++) {
+                    const double value = get_recomb_prob(rhos[x], prev_times[i])
+                        * forward_probs[x][i];
+                    if (isfinite(value) && value > 0) {
+                        recomb_weights[i] = value;
+                        recomb_total += value;
+                    }
+                }
+                if (recomb_total > 0 && isfinite(recomb_total)) {
+                    double recomb_draw = recomb_total*random();
+                    int last_recombination_state = -1;
+                    for (size_t i = 0; i < recomb_weights.size(); i++) {
+                        if (recomb_weights[i] > 0) {
+                            last_recombination_state = static_cast<int>(i);
+                        }
+                        recomb_draw -= recomb_weights[i];
+                        if (recomb_draw <= 0) {
+                            sample_index = static_cast<int>(i);
+                            cerr << "SINGER_STAR_RECOVERY sample_source_interval_recombination"
+                                 << " curr_index=" << x
+                                 << " sources=" << intervals.size()
+                                 << " predecessor_states=" << prev_intervals.size()
+                                 << endl;
+                            return prev_intervals[i];
+                        }
+                    }
+                    if (last_recombination_state >= 0) {
+                        sample_index = last_recombination_state;
+                        cerr << "SINGER_STAR_RECOVERY sample_source_interval_recombination_roundoff"
+                             << " curr_index=" << x
+                             << " residual=" << recomb_draw
+                             << " weight_sum=" << recomb_total << endl;
+                        return prev_intervals[last_recombination_state];
+                    }
+                }
                 cerr << "SINGER_STAR_RECOVERY_FAILED sample_source_interval"
                      << " curr_index=" << x
                      << " sources=" << intervals.size()
-                     << " mapped_sources=" << mapped_sources << endl;
+                     << " mapped_sources=" << mapped_sources
+                     << " recombination_weight=" << recomb_total << endl;
                 exit(1);
             }
             sampling_weights = &fallback;

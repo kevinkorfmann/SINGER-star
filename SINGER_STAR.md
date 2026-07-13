@@ -39,8 +39,10 @@ similarly keeps the original path for valid weights, falls back first to the
 corresponding forward probabilities and then to a uniform distribution over
 structurally valid source links, and assigns a positive terminal residual to
 the last supported state when floating-point roundoff prevents the cumulative
-sum from crossing zero. Every recovery emits a `SINGER_STAR_RECOVERY` record
-on standard error.
+sum from crossing zero. If pruning leaves a selected state without any source
+link, the recovery conditions on the same nonzero recombination transition
+weights used by the backward sampler at that breakpoint. Every recovery emits
+a `SINGER_STAR_RECOVERY` record on standard error.
 
 The Slurm validation graph in `slarg_cluster/` requires both exact scientific
 output parity on a recovery-free run and completion of four bounded replays
